@@ -20,16 +20,22 @@ export default async function DashboardPage() {
     .single();
 
   const isAdmin = profile?.role === 'admin';
+  const canManageGrants = profile?.role === 'admin' || profile?.role === 'manager';
 
   return (
     <div className="min-h-svh bg-slate-50 p-4 sm:p-8">
       <div className="mx-auto max-w-3xl space-y-4">
         <div className="flex items-center justify-between">
           <h1 className="text-2xl font-bold">대시보드</h1>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             {isAdmin && (
               <Link href="/dashboard/employees">
                 <Button variant="outline">직원 관리</Button>
+              </Link>
+            )}
+            {canManageGrants && (
+              <Link href="/dashboard/grants">
+                <Button variant="outline">휴가 부여</Button>
               </Link>
             )}
             <form action={logout}>
