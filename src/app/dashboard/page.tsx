@@ -1,3 +1,4 @@
+import Link from 'next/link';
 import { createClient } from '@/lib/supabase/server';
 import { logout } from '../(auth)/actions';
 import { Button } from '@/components/ui/button';
@@ -18,16 +19,25 @@ export default async function DashboardPage() {
     .eq('id', user!.id)
     .single();
 
+  const isAdmin = profile?.role === 'admin';
+
   return (
     <div className="min-h-svh bg-slate-50 p-4 sm:p-8">
       <div className="mx-auto max-w-3xl space-y-4">
         <div className="flex items-center justify-between">
           <h1 className="text-2xl font-bold">대시보드</h1>
-          <form action={logout}>
-            <Button variant="outline" type="submit">
-              로그아웃
-            </Button>
-          </form>
+          <div className="flex gap-2">
+            {isAdmin && (
+              <Link href="/dashboard/employees">
+                <Button variant="outline">직원 관리</Button>
+              </Link>
+            )}
+            <form action={logout}>
+              <Button variant="outline" type="submit">
+                로그아웃
+              </Button>
+            </form>
+          </div>
         </div>
 
         <Card>
@@ -42,7 +52,7 @@ export default async function DashboardPage() {
             <p>입사일: {profile?.hire_date}</p>
             <p>생년월일: {profile?.birth_date ?? '미입력'}</p>
             <p className="pt-2 text-xs text-slate-500">
-              4단계에서 직원 등록·연차 부여 화면이 추가됩니다.
+              5단계에서 연차 부여·신청 화면이 추가됩니다.
             </p>
           </CardContent>
         </Card>
