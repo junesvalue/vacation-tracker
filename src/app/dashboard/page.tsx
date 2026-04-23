@@ -28,14 +28,17 @@ export default async function DashboardPage() {
         <div className="flex items-center justify-between">
           <h1 className="text-2xl font-bold">대시보드</h1>
           <div className="flex flex-wrap gap-2">
-            {isAdmin && (
-              <Link href="/dashboard/employees">
-                <Button variant="outline">직원 관리</Button>
-              </Link>
-            )}
+            <Link href="/dashboard/requests">
+              <Button variant="outline">휴가 신청</Button>
+            </Link>
             {canManageGrants && (
               <Link href="/dashboard/grants">
                 <Button variant="outline">휴가 부여</Button>
+              </Link>
+            )}
+            {isAdmin && (
+              <Link href="/dashboard/employees">
+                <Button variant="outline">직원 관리</Button>
               </Link>
             )}
             <form action={logout}>
