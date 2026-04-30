@@ -6,7 +6,7 @@
 -- ------------------------------------------------------------
 -- 헬퍼: duration → 일수
 -- ------------------------------------------------------------
-create or replace function public.duration_days(p_duration leave_duration)
+create or replace function vacation_tracker.duration_days(p_duration vacation_tracker.leave_duration)
 returns numeric
 language sql
 immutable
@@ -21,15 +21,15 @@ $$;
 -- ------------------------------------------------------------
 -- 헬퍼: 특정 직원·종류의 현재 잔여 (view를 그대로 활용)
 -- ------------------------------------------------------------
-create or replace function public.remaining_days(p_employee_id uuid, p_leave_type leave_type)
+create or replace function vacation_tracker.remaining_days(p_employee_id uuid, p_leave_type vacation_tracker.leave_type)
 returns numeric
 language sql
 stable
 security definer
-set search_path = public
+set search_path = vacation_tracker, auth
 as $$
   select coalesce(remaining_days, 0)
-    from leave_balances
+    from vacation_tracker.leave_balances
    where employee_id = p_employee_id
      and leave_type = p_leave_type
 $$;
@@ -40,16 +40,16 @@ $$;
 --   잔여 < 신청일수 → INSUFFICIENT_BALANCE
 --   동일 use_date에 비-반려 신청 존재 → DUPLICATE_DATE
 -- ------------------------------------------------------------
-create or replace function public.submit_leave_request(
+create or replace function vacation_tracker.submit_leave_request(
   p_use_date   date,
-  p_duration   leave_duration,
-  p_leave_type leave_type,
+  p_duration   vacation_tracker.leave_duration,
+  p_leave_type vacation_tracker.leave_type,
   p_reason     text default null
 )
 returns uuid
 language plpgsql
 security definer
-set search_path = public
+set search_path = vacation_tracker, auth
 as $$
 declare
   v_caller_company uuid;
@@ -60,16 +60,16 @@ declare
 begin
   if v_caller_id is null then raise exception 'NOT_AUTHENTICATED'; end if;
 
-  select company_id into v_caller_company from profiles where id = v_caller_id;
+  select company_id into v_caller_company from vacation_tracker.profiles where id = v_caller_id;
   if v_caller_company is null then raise exception 'PROFILE_REQUIRED'; end if;
 
   if p_use_date is null then raise exception 'INVALID_DATE'; end if;
 
-  v_request_days := duration_days(p_duration);
+  v_request_days := vacation_tracker.duration_days(p_duration);
   if v_request_days is null then raise exception 'INVALID_DURATION'; end if;
 
   if exists (
-    select 1 from leave_requests
+    select 1 from vacation_tracker.leave_requests
      where employee_id = v_caller_id
        and use_date = p_use_date
        and status <> 'rejected'
@@ -77,12 +77,12 @@ begin
     raise exception 'DUPLICATE_DATE';
   end if;
 
-  v_remaining := remaining_days(v_caller_id, p_leave_type);
+  v_remaining := vacation_tracker.remaining_days(v_caller_id, p_leave_type);
   if v_remaining < v_request_days then
     raise exception 'INSUFFICIENT_BALANCE';
   end if;
 
-  insert into leave_requests
+  insert into vacation_tracker.leave_requests
     (company_id, employee_id, use_date, duration, leave_type, status, reason)
   values
     (v_caller_company, v_caller_id, p_use_date, p_duration, p_leave_type, 'pending', p_reason)
@@ -92,7 +92,7 @@ begin
 end;
 $$;
 
-grant execute on function public.submit_leave_request(date, leave_duration, leave_type, text) to authenticated;
+grant execute on function vacation_tracker.submit_leave_request(date, vacation_tracker.leave_duration, vacation_tracker.leave_type, text) to authenticated;
 
 -- ------------------------------------------------------------
 -- 결정 RPC (승인/반려)
@@ -100,19 +100,19 @@ grant execute on function public.submit_leave_request(date, leave_duration, leav
 --   - employee: 본인의 pending 신청을 reject(=취소)만 가능
 --   - approve 시점에 잔여 재검증 (race 대비)
 -- ------------------------------------------------------------
-create or replace function public.decide_leave_request(
+create or replace function vacation_tracker.decide_leave_request(
   p_request_id     uuid,
-  p_decision       request_status,
+  p_decision       vacation_tracker.request_status,
   p_decided_reason text default null
 )
 returns void
 language plpgsql
 security definer
-set search_path = public
+set search_path = vacation_tracker, auth
 as $$
 declare
   v_caller_company uuid;
-  v_caller_role    user_role;
+  v_caller_role    vacation_tracker.user_role;
   v_caller_id      uuid := auth.uid();
   v_req            record;
   v_request_days   numeric;
@@ -125,9 +125,9 @@ begin
   end if;
 
   select company_id, role into v_caller_company, v_caller_role
-    from profiles where id = v_caller_id;
+    from vacation_tracker.profiles where id = v_caller_id;
 
-  select * into v_req from leave_requests where id = p_request_id;
+  select * into v_req from vacation_tracker.leave_requests where id = p_request_id;
   if not found then raise exception 'REQUEST_NOT_FOUND'; end if;
   if v_req.company_id <> v_caller_company then
     raise exception 'CROSS_TENANT_FORBIDDEN';
@@ -151,14 +151,14 @@ begin
   end if;
 
   if p_decision = 'approved' then
-    v_request_days := duration_days(v_req.duration);
-    v_remaining := remaining_days(v_req.employee_id, v_req.leave_type);
+    v_request_days := vacation_tracker.duration_days(v_req.duration);
+    v_remaining := vacation_tracker.remaining_days(v_req.employee_id, v_req.leave_type);
     if v_remaining < v_request_days then
       raise exception 'INSUFFICIENT_BALANCE';
     end if;
   end if;
 
-  update leave_requests
+  update vacation_tracker.leave_requests
      set status         = p_decision,
          approver_id    = v_caller_id,
          decided_reason = p_decided_reason,
@@ -167,4 +167,4 @@ begin
 end;
 $$;
 
-grant execute on function public.decide_leave_request(uuid, request_status, text) to authenticated;
+grant execute on function vacation_tracker.decide_leave_request(uuid, vacation_tracker.request_status, text) to authenticated;

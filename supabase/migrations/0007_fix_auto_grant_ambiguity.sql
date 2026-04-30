@@ -5,7 +5,7 @@
 -- FOR 루프 SELECT를 별칭(p.)으로 수식하여 해결.
 -- ============================================================
 
-create or replace function public.process_auto_grants(
+create or replace function vacation_tracker.process_auto_grants(
   p_as_of date default current_date
 )
 returns table (
@@ -17,11 +17,11 @@ returns table (
 )
 language plpgsql
 security definer
-set search_path = public
+set search_path = vacation_tracker, auth
 as $$
 declare
   v_caller_company uuid;
-  v_caller_role    user_role;
+  v_caller_role    vacation_tracker.user_role;
   rec_emp          record;
   v_hire           date;
   v_anniv          date;
@@ -37,7 +37,7 @@ begin
 
   select company_id, role
     into v_caller_company, v_caller_role
-    from profiles where id = auth.uid();
+    from vacation_tracker.profiles where id = auth.uid();
 
   if v_caller_role not in ('admin', 'manager') then
     raise exception 'NOT_ALLOWED';
@@ -48,7 +48,7 @@ begin
            p.emp_no    as p_emp_no,
            p.name      as p_name,
            p.hire_date as p_hire_date
-      from profiles p
+      from vacation_tracker.profiles p
      where p.company_id = v_caller_company
      order by p.hire_date
   loop
@@ -64,7 +64,7 @@ begin
       exit when v_anniv >= (v_hire + interval '1 year')::date;
 
       begin
-        insert into leave_grants
+        insert into vacation_tracker.leave_grants
           (company_id, employee_id, grant_date, leave_type, days, source, memo)
         values
           (v_caller_company, rec_emp.p_id, v_anniv, 'annual', 1.0, 'auto',
@@ -84,10 +84,10 @@ begin
       v_anniv := (v_hire + (v_year_n || ' years')::interval)::date;
       exit when v_anniv > p_as_of;
 
-      v_days := annual_days_for_years(v_year_n);
+      v_days := vacation_tracker.annual_days_for_years(v_year_n);
 
       begin
-        insert into leave_grants
+        insert into vacation_tracker.leave_grants
           (company_id, employee_id, grant_date, leave_type, days, source, memo)
         values
           (v_caller_company, rec_emp.p_id, v_anniv, 'annual', v_days, 'auto',

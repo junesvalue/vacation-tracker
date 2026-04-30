@@ -18,6 +18,7 @@ export function createAdminClient() {
   }
 
   return createClient(url, serviceKey, {
+    db: { schema: 'vacation_tracker' },
     auth: {
       autoRefreshToken: false,
       persistSession: false,

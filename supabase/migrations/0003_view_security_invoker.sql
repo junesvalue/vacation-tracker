@@ -6,4 +6,4 @@
 -- 요구사항: Postgres 15+ (Supabase는 15 이상 사용)
 -- ============================================================
 
-alter view leave_balances set (security_invoker = true);
+alter view vacation_tracker.leave_balances set (security_invoker = true);

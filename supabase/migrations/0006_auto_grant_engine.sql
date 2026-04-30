@@ -13,7 +13,7 @@
 --   ...
 --   21년차+: 25 (상한)
 -- ------------------------------------------------------------
-create or replace function public.annual_days_for_years(p_years int)
+create or replace function vacation_tracker.annual_days_for_years(p_years int)
 returns numeric
 language sql
 immutable
@@ -25,14 +25,14 @@ as $$
   end
 $$;
 
-comment on function public.annual_days_for_years is
+comment on function vacation_tracker.annual_days_for_years is
   '근속 N년차 시작일에 일괄 부여될 연차 일수 (15 + 가산, 25 상한).';
 
 -- ------------------------------------------------------------
 -- 중복 부여 방지 unique index (auto source 한정)
 -- ------------------------------------------------------------
 create unique index if not exists ux_grants_auto_unique
-  on leave_grants (employee_id, grant_date, leave_type)
+  on vacation_tracker.leave_grants (employee_id, grant_date, leave_type)
   where source = 'auto';
 
 -- ------------------------------------------------------------
@@ -41,7 +41,7 @@ create unique index if not exists ux_grants_auto_unique
 -- 반환: 직원별 새로 부여된 건수/일수.
 -- 권한: admin 또는 manager.
 -- ------------------------------------------------------------
-create or replace function public.process_auto_grants(
+create or replace function vacation_tracker.process_auto_grants(
   p_as_of date default current_date
 )
 returns table (
@@ -53,11 +53,11 @@ returns table (
 )
 language plpgsql
 security definer
-set search_path = public
+set search_path = vacation_tracker, auth
 as $$
 declare
   v_caller_company uuid;
-  v_caller_role    user_role;
+  v_caller_role    vacation_tracker.user_role;
   rec_emp          record;
   v_hire           date;
   v_anniv          date;
@@ -73,7 +73,7 @@ begin
 
   select company_id, role
     into v_caller_company, v_caller_role
-    from profiles where id = auth.uid();
+    from vacation_tracker.profiles where id = auth.uid();
 
   if v_caller_role not in ('admin', 'manager') then
     raise exception 'NOT_ALLOWED';
@@ -81,7 +81,7 @@ begin
 
   for rec_emp in
     select id, emp_no, name, hire_date
-      from profiles
+      from vacation_tracker.profiles
      where company_id = v_caller_company
      order by hire_date
   loop
@@ -99,7 +99,7 @@ begin
       exit when v_anniv >= (v_hire + interval '1 year')::date;
 
       begin
-        insert into leave_grants
+        insert into vacation_tracker.leave_grants
           (company_id, employee_id, grant_date, leave_type, days, source, memo)
         values
           (v_caller_company, rec_emp.id, v_anniv, 'annual', 1.0, 'auto',
@@ -119,10 +119,10 @@ begin
       v_anniv := (v_hire + (v_year_n || ' years')::interval)::date;
       exit when v_anniv > p_as_of;
 
-      v_days := annual_days_for_years(v_year_n);
+      v_days := vacation_tracker.annual_days_for_years(v_year_n);
 
       begin
-        insert into leave_grants
+        insert into vacation_tracker.leave_grants
           (company_id, employee_id, grant_date, leave_type, days, source, memo)
         values
           (v_caller_company, rec_emp.id, v_anniv, 'annual', v_days, 'auto',
@@ -150,41 +150,41 @@ begin
 end;
 $$;
 
-grant execute on function public.process_auto_grants(date) to authenticated;
+grant execute on function vacation_tracker.process_auto_grants(date) to authenticated;
 
-comment on function public.process_auto_grants is
+comment on function vacation_tracker.process_auto_grants is
   '회사 전체 직원에 대해 hire_date~p_as_of 구간의 자동 연차를 누락분만 일괄 부여.';
 
 -- ------------------------------------------------------------
 -- 수동 부여 RPC (대체휴무·특별휴가, 수동 연차 보정용)
 -- ------------------------------------------------------------
-create or replace function public.create_manual_grant(
+create or replace function vacation_tracker.create_manual_grant(
   p_employee_id uuid,
   p_grant_date  date,
-  p_leave_type  leave_type,
+  p_leave_type  vacation_tracker.leave_type,
   p_days        numeric,
   p_memo        text default null
 )
 returns uuid
 language plpgsql
 security definer
-set search_path = public
+set search_path = vacation_tracker, auth
 as $$
 declare
   v_caller_company uuid;
-  v_caller_role    user_role;
+  v_caller_role    vacation_tracker.user_role;
   v_target_company uuid;
   v_grant_id       uuid;
 begin
   if auth.uid() is null then raise exception 'NOT_AUTHENTICATED'; end if;
 
   select company_id, role into v_caller_company, v_caller_role
-    from profiles where id = auth.uid();
+    from vacation_tracker.profiles where id = auth.uid();
   if v_caller_role not in ('admin', 'manager') then
     raise exception 'NOT_ALLOWED';
   end if;
 
-  select company_id into v_target_company from profiles where id = p_employee_id;
+  select company_id into v_target_company from vacation_tracker.profiles where id = p_employee_id;
   if v_target_company is null then raise exception 'EMPLOYEE_NOT_FOUND'; end if;
   if v_target_company <> v_caller_company then
     raise exception 'CROSS_TENANT_FORBIDDEN';
@@ -192,7 +192,7 @@ begin
 
   if p_days <= 0 then raise exception 'INVALID_DAYS'; end if;
 
-  insert into leave_grants
+  insert into vacation_tracker.leave_grants
     (company_id, employee_id, grant_date, leave_type, days, source, memo)
   values
     (v_caller_company, p_employee_id, p_grant_date, p_leave_type, p_days, 'manual', p_memo)
@@ -202,7 +202,7 @@ begin
 end;
 $$;
 
-grant execute on function public.create_manual_grant(uuid, date, leave_type, numeric, text) to authenticated;
+grant execute on function vacation_tracker.create_manual_grant(uuid, date, vacation_tracker.leave_type, numeric, text) to authenticated;
 
-comment on function public.create_manual_grant is
+comment on function vacation_tracker.create_manual_grant is
   '관리자가 직원에게 수동으로 휴가 부여 (대체휴무, 특별휴가, 수동 연차 등).';
